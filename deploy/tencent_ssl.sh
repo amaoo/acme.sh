@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
-#export Tencent_SecretId="AKaaaaaaaaaaaaaaa"
-#export Tencent_SecretKey="Gbbbbbbbbbbbbbbbbbbbbb"
+#export Tencent_SecretId="AKIDz81d2cd22cdcdc2dcd1cc1d1A"
+#export Tencent_SecretKey="Gu5t9abcabcaabcbabcbbbcbcbbccbbcb"
 
 tencent_ssl_deploy() {
   _cdomain="$1"
@@ -12,13 +12,9 @@ tencent_ssl_deploy() {
   _debug _ckey "$_ckey"
   _debug _cfullchain "$_cfullchain"
 
-
   Tencent_SecretId="${Tencent_SecretId:-$(_readaccountconf_mutable Tencent_SecretId)}"
   Tencent_SecretKey="${Tencent_SecretKey:-$(_readaccountconf_mutable Tencent_SecretKey)}"
 
-
-  # _getdeployconf Tencent_SecretId
-  # _getdeployconf Tencent_SecretKey
   if [ -z "${Tencent_SecretId}" ]; then
     _err "Please define Tencent_SecretId."
     return 1
@@ -27,38 +23,65 @@ tencent_ssl_deploy() {
     _err "Please define Tencent_SecretKey."
     return 1
   fi
-  # _savedeployconf Tencent_SecretId "$Tencent_SecretId"
-  # _savedeployconf Tencent_SecretKey "$Tencent_SecretKey"
 
-  # https://cloud.tencent.com/document/api/400/41665
-  _payload="{\"CertificatePublicKey\":\"$(_json_encode <"$_cfullchain")\",\"CertificatePrivateKey\":\"$(_json_encode <"$_ckey")\",\"Alias\":\"acme.sh $_cdomain\"}"
-  if ! cert_id="$(tencent_api_request_ssl "UploadCertificate" "$_payload" "CertificateId")"; then
-    return 1
-  fi
-  _debug cert_id "$cert_id"
-
+  # 获取上次的证书ID
   _getdeployconf DEPLOY_TENCENT_SSL_CURRENT_CERTIFICATE_ID
   old_cert_id="$DEPLOY_TENCENT_SSL_CURRENT_CERTIFICATE_ID"
-  # https://cloud.tencent.com/document/api/400/91649
-  # NOTE: no new cert id returned from UpdateCertificateInstance+cert_data
-  # so it's necessary to upload cert first then UpdateCertificateInstance+new_cert_id
-  if [ -n "${old_cert_id}" ]; then
-    _payload="{\"OldCertificateId\":\"$old_cert_id\",\"CertificateId\":\"$cert_id\",\"ResourceTypes\":[\"clb\",\"cdn\",\"waf\",\"live\",\"ddos\",\"teo\",\"apigateway\",\"vod\",\"tke\",\"tcb\",\"tse\"]}"
-    if ! tencent_api_request_ssl "UpdateCertificateInstance" "$_payload" "RequestId"; then
-      return 1
-    fi
-    _payload="{\"CertificateId\":\"$old_cert_id\"}"
-    if ! tencent_api_request_ssl "DeleteCertificate" "$_payload" "RequestId"; then
-      _err "Can not delete old certificate: $old_cert_id"
-      # NOTE: non-exist old cert id will not break from UpdateCertificateInstance
-      # break it here
-      return 1
-    fi
+
+  _info "old_cert_id: $old_cert_id"
+
+  resource_types="$(_readdomainconf TENCENT_SSL_RESOURCE_TYPES)"
+  resource_types_json=$(printf '"%s",' ${resource_types//,/ } | sed 's/,$//')
+  [[ -z "$resource_types" ]] && resource_types_json='[]' || resource_types_json="[$resource_types_json]"
+
+  _info "resource_types_json: $resource_types_json"
+
+  # -----------------------------
+  # 无论是否存在旧证书和关联资源，先使用 UploadCertificate 上传新证书。
+  # -----------------------------
+  _info "Uploading new Tencent SSL certificate to get new certificate ID"
+  _payload="{\"CertificatePublicKey\":\"$(_json_encode <"$_cfullchain")\",\"CertificatePrivateKey\":\"$(_json_encode <"$_ckey")\",\"Alias\":\"acme.sh $_cdomain\"}"
+  if ! new_cert_id="$(tencent_api_request_ssl "UploadCertificate" "$_payload" "CertificateId")"; then
+    _err "Failed to upload new certificate."
+    return 1
   fi
-  _savedeployconf DEPLOY_TENCENT_SSL_CURRENT_CERTIFICATE_ID "$cert_id"
+  _info "New Certificate ID: $new_cert_id"
+
+  # -----------------------------
+  # 存在旧证书，并且已关联资源，使用 UpdateCertificateInstance 更新新旧证书资源
+  # -----------------------------
+  if [ -n "$old_cert_id" ] && [ -n "$resource_types" ]; then
+    _info "Resources ($resource_types) associated with $old_cert_id updated to $new_cert_id"
+
+    # 使用新的证书ID (new_cert_id) 替换旧的证书ID (old_cert_id) 关联的资源
+    _payload="{\"OldCertificateId\":\"$old_cert_id\",\"CertificateId\":\"$new_cert_id\",\"ResourceTypes\":$resource_types_json}"
+
+    if ! request_id="$(tencent_api_request_ssl "UpdateCertificateInstance" "$_payload" "RequestId")"; then
+      _err "Failed to update existing certificate instance."
+      # 注意：如果更新失败，此时新证书已上传，但旧证书未替换，应该返回失败。
+      return 1
+    fi
+    _info "New certificate resource update successful: " $request_id
+
+  fi
+
+  # 保存最新证书ID
+  _savedeployconf DEPLOY_TENCENT_SSL_CURRENT_CERTIFICATE_ID "$new_cert_id"
+
+#  # -----------------------------
+#  # 删除未关联资源的旧证书
+#  # -----------------------------
+#  if [ -n "$old_cert_id" ]; then
+#    _info "Deleted unassociated old certificate: $old_cert_id"
+#
+#    _payload="{\"CertificateId\":\"$old_cert_id\"}"
+#
+#    tencent_api_request_ssl "DeleteCertificate" "$_payload" "DeleteResult"
+#    _debug delete_result "$delete_result"
 
   return 0
 }
+
 
 tencent_api_request_ssl() {
   action=$1
@@ -78,11 +101,14 @@ tencent_api_request_ssl() {
 
   _debug response "$response"
 
-  value="$(echo "$response" | _egrep_o "\"$response_field\":\"[^\"]*\"" | cut -d : -f 2 | tr -d \")"
+  #value="$(echo "$response" | _egrep_o "\"$response_field\":\"[^\"]*\"" | cut -d : -f 2 | tr -d \")"
+  value="$(echo "$response" | _egrep_o "\"$response_field\":[^\,}]*" | cut -d : -f 2 | tr -d '", \t\n\r')"
+
   if [ -z "$value" ]; then
     _err "$response_field not found"
     return 1
   fi
+
   echo "$value"
 }
 
