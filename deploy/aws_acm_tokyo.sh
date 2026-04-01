@@ -89,7 +89,7 @@ _get_arn() {
 
   while [ "$_next" ]; do
     _debug _next "$_next"
-    _listComm="aws acm list-certificates $_includes_option --region $2 --max-items $_page"
+    _listComm="aws acm list-certificates --query \"CertificateSummaryList[?Type=='IMPORTED']\" $_includes_option --region $2 --max-items $_page"
     if [ "$_next" == "null" ] || [ -z "$_next" ]; then
       resp=$($_listComm)
     else
