@@ -109,22 +109,36 @@ _get_arn() {
 
   while [ "$_next" ]; do
     _debug _next "$_next"
-    _listComm="aws acm list-certificates --query \"CertificateSummaryList[?Type=='IMPORTED']\" $_includes_option --region $2 --max-items $_page"
-    if [ "$_next" == "null" ] || [ -z "$_next" ]; then
-      resp=$($_listComm)
-    else
-      resp=$($_listComm --starting-token $_next)
+
+    _listComm="aws acm list-certificates --query \"{CertificateSummaryList:CertificateSummaryList[?Type=='IMPORTED'],NextToken:NextToken}\" $_includes_option --region $2 --max-items $_page"
+
+    if [ "$_next" != "null" ] && [ -n "$_next" ]; then
+      _listComm="$_listComm --starting-token $_next"
     fi
-    [ "$?" -eq 0 ] || return 2
-    printf %s "$resp" |
-      _normalizeJson |
-      tr '{}' '\n' |
-      grep -F "\"DomainName\":\"$1\"" |
-      _egrep_o "arn:aws:acm:$2:[^\"]+" |
-      grep "^arn:aws:acm:$2:"
-    [ "$?" -eq 0 ] && return
+
+    _debug "_get_arn cmd" "$_listComm"
+
+    resp=$(eval "$_listComm")
+    _ret="$?"
+    [ "$_ret" -eq 0 ] || return 2
+
+    _debug "_get_arn resp" "$resp"
+
+    _normalized="$(printf %s "$resp" | _normalizeJson)"
+
+    _matched="$(printf %s "$_normalized" | tr '{}' '\n' | grep -F "\"DomainName\":\"$1\"")"
+
+    if [ -n "$_matched" ]; then
+      _found_arn="$(printf %s "$_matched" | _egrep_o "arn:aws:acm:$2:[^\"]+" | grep "^arn:aws:acm:$2:")"
+      if [ -n "$_found_arn" ]; then
+        printf %s "$_found_arn"
+        return
+      fi
+    fi
+
     _token="$(printf %s "$resp" | _egrep_o '"NextToken": "[^"]+"')"
     _debug _token "$_token"
+
     if [ -z "$_token" ]; then
       return
     fi
