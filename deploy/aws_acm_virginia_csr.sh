@@ -16,6 +16,12 @@ aws_acm_virginia_csr_deploy() {
   _region="us-east-1"
   _info "Deploy certificates (based on the imported CSR) to AWS ACM in the US East (N. Virginia) region."
 
+  if [ -z "$LE_CONFIG_HOME" ] || [ ! -d "$LE_CONFIG_HOME/csr" ]; then
+    _err "csr directory not found under LE_CONFIG_HOME: $LE_CONFIG_HOME"
+    _err "Did you forget --config-home? Key is read from: \$LE_CONFIG_HOME/csr/\$domain.key"
+    return 1
+  fi
+
   # Read key from external csr/ directory
   _real_key="$LE_CONFIG_HOME/csr/$_cdomain.key"
 
