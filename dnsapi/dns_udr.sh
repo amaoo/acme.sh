@@ -7,7 +7,7 @@ Options:
  UDR_USER Username
  UDR_PASS Password
 Issues: github.com/acmesh-official/acme.sh/issues/3923
-Author: Andreas Scherer <https://github.com/andischerer>
+Author: Andreas Scherer <@andischerer>
 '
 
 UDR_API="https://api.domainreselling.de/api/call.cgi"
@@ -145,8 +145,8 @@ _udr_rest() {
   _debug data "${data}"
   response="$(_post "${data}" "${UDR_API}?s_login=${UDR_USER}&s_pw=${UDR_PASS}" "" "POST")"
 
-  _code=$(echo "$response" | _egrep_o "code = ([0-9]+)" | _head_n 1 | cut -d = -f 2 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-  _description=$(echo "$response" | _egrep_o "description = .*" | _head_n 1 | cut -d = -f 2 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+  _code=$(echo "$response" | _egrep_o "code = ([0-9]+)" | _head_n 1 | cut -d = -f 2 | tr -d ' \t\r')
+  _description=$(echo "$response" | _egrep_o "description = .*" | _head_n 1 | cut -d = -f 2 | tr -d '\r' | sed -e 's/^[ ]*//' -e 's/[ ]*$//')
 
   _debug response_code "$_code"
   _debug response_description "$_description"
