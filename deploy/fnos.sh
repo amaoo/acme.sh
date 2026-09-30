@@ -24,6 +24,7 @@ fnos_deploy() {
   _debug _fnos_cert_path "$_fnos_cert_path"
 
   _fch_file="$_fnos_cert_path/fullchain.crt"
+  _fca_file="$_fnos_cert_path/issuer_certificate.crt"
   _crt_file="$_fnos_cert_path/$_cdomain.crt"
   _key_file="$_fnos_cert_path/$_cdomain.key"
 
@@ -37,13 +38,14 @@ fnos_deploy() {
 
   # 放置新证书文件
   /bin/cp -f "$_cfullchain" "$_fch_file" || { _err "复制 fullchain 失败"; return 1; }
+  /bin/cp -f "$_cca" "$_fca_file" || { _err "复制 ca 失败"; return 1; }
   /bin/cp -f "$_ccert" "$_crt_file" || { _err "复制 cert 失败"; return 1; }
   /bin/cp -f "$_ckey" "$_key_file" || { _err "复制 key 失败"; return 1; }
 
   # 权限设置
-  chown root:root "$_fch_file" "$_crt_file" "$_key_file"
+  chown root:root "$_fch_file" "$_crt_file" "$_key_file" "$_fca_file"
   chmod 644 "$_fch_file"
-  chmod 755 "$_crt_file" "$_key_file"
+  chmod 755 "$_crt_file" "$_key_file" "$_fca_file"
 
 
   # 更新数据库的证书到期日期
