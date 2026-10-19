@@ -59,6 +59,8 @@ aws_acm_tokyo_deploy() {
     _ret="$?"
   fi
 
+  _info "ImportType: $_import_type"
+  
   if [ "$_ret" != "0" ]; then
     _debug _import_type "$_import_type"
     _debug _import_arn "$_import_arn"
